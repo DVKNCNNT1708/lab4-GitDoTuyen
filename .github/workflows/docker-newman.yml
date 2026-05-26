@@ -68,7 +68,8 @@ jobs:
       - name: Tag and push image to GHCR
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          docker tag fit4110/iot-ingestion:lab04 ghcr.io/${{ github.repository_owner }}/iot-ingestion:v0.1.0-team-iot
-          docker tag fit4110/iot-ingestion:lab04 ghcr.io/${{ github.repository_owner }}/iot-ingestion:lab04
-          docker push ghcr.io/${{ github.repository_owner }}/iot-ingestion:v0.1.0-team-iot
-          docker push ghcr.io/${{ github.repository_owner }}/iot-ingestion:lab04
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker tag fit4110/iot-ingestion:lab04 ghcr.io/${OWNER}/iot-ingestion:v0.1.0-team-iot
+          docker tag fit4110/iot-ingestion:lab04 ghcr.io/${OWNER}/iot-ingestion:lab04
+          docker push ghcr.io/${OWNER}/iot-ingestion:v0.1.0-team-iot
+          docker push ghcr.io/${OWNER}/iot-ingestion:lab04
