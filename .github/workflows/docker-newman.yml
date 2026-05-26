@@ -56,3 +56,19 @@ jobs:
         with:
           name: lab04-newman-reports
           path: reports/
+
+      - name: Login to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push image to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          docker tag fit4110/iot-ingestion:lab04 ghcr.io/${{ github.repository_owner }}/iot-ingestion:v0.1.0-team-iot
+          docker tag fit4110/iot-ingestion:lab04 ghcr.io/${{ github.repository_owner }}/iot-ingestion:lab04
+          docker push ghcr.io/${{ github.repository_owner }}/iot-ingestion:v0.1.0-team-iot
+          docker push ghcr.io/${{ github.repository_owner }}/iot-ingestion:lab04
