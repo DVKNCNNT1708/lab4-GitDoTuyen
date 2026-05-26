@@ -34,7 +34,7 @@ jobs:
             fit4110/iot-ingestion:lab04
 
       - name: Wait for service health
-        run: npx wait-on http://localhost:8000/health --timeout 30000
+        run: npx wait-on http-get://localhost:8000/health --timeout 30000
 
       - name: Verify /health endpoint
         run: curl -sf http://localhost:8000/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok', d"
