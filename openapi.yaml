@@ -1,0 +1,1065 @@
+openapi: 3.1.0
+
+info:
+  title: A6 Core Business Service API
+  version: 1.1.0
+  description: |
+    A6 Core Business is the orchestration service for Smart Campus.
+    It receives events from A4 AI Vision and A3 Access Gate, makes business decisions,
+    and connects to A7 Notification through POST /api/notifications.
+  contact:
+    name: A6 Core Business Team
+    email: a6@example.com
+
+servers:
+  - url: http://localhost:4060
+    description: Local A6 service
+  - url: https://api.campus.local
+    description: Campus network placeholder
+
+externalDocs:
+  description: A7 Notification service contract used by A6
+  url: http://localhost:4010/api/notifications
+
+tags:
+  - name: Health
+    description: Check A6 service status
+  - name: Vision Events
+    description: Receive detection events from A4 AI Vision
+  - name: Access Events
+    description: Receive and verify access events from A3 Access Gate
+  - name: Business Events
+    description: Manage core business events
+  - name: Decisions
+    description: Create business decisions
+  - name: A7 Notifications
+    description: Create and track notification requests sent to A7
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/core-business/health:
+    get:
+      operationId: getCoreBusinessHealth
+      summary: Health check
+      description: Check if A6 Core Business service is running. No authentication required.
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: A6 service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    service: a6-core-business
+                    time: '2026-05-20T08:00:00Z'
+
+  /api/v1/core-business/events:
+    post:
+      operationId: receiveVisionDetectionEvent
+      summary: Receive detection event from A4 AI Vision
+      description: |
+        A4 AI Vision calls this endpoint after object detection is completed.
+        A6 creates a BusinessEvent and decides whether access verification or notification is needed.
+      tags: [Vision Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisionDetectionEvent'
+            examples:
+              intrusion:
+                value:
+                  eventId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2b001
+                  detectionId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2a001
+                  cameraId: CAM-01
+                  detectedAt: '2026-05-20T08:01:00Z'
+                  snapshotUrl: https://storage.campus.local/frames/CAM-01-001.jpg
+                  objects:
+                    - label: person
+                      confidence: 0.97
+                      riskLevel: HIGH
+                      boundingBox:
+                        x: 120
+                        y: 80
+                        width: 260
+                        height: 420
+      responses:
+        '201':
+          description: Business event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessEventCreatedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/vision/detections/{detectionId}:
+    get:
+      operationId: getDetectionResult
+      summary: Get detection result from A4 AI Vision
+      tags: [Vision Events]
+      parameters:
+        - name: detectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Detection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisionDetectionEvent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/events/{businessEventId}:
+    get:
+      operationId: getBusinessEventById
+      summary: Get business event detail
+      description: Retrieve full detail of a business event by its UUID, including detection, access verification and latest decision.
+      tags: [Business Events]
+      parameters:
+        - $ref: '#/components/parameters/BusinessEventId'
+      responses:
+        '200':
+          description: Business event detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/events/{businessEventId}/status:
+    patch:
+      operationId: updateBusinessEventStatus
+      summary: Update business event status
+      description: Manually update the status of a business event. Used by operators or rule engine to resolve, ignore or escalate events.
+      tags: [Business Events]
+      parameters:
+        - $ref: '#/components/parameters/BusinessEventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBusinessEventStatusRequest'
+      responses:
+        '200':
+          description: Updated business event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/events/{businessEventId}/access-verification:
+    post:
+      operationId: verifyAccessWithA3
+      summary: Verify access permission with A3 Access Gate
+      description: |
+        A6 receives card and gate information, then calls A3 POST /access/check internally.
+        The result is saved into the BusinessEvent for decision making.
+      tags: [Access Events]
+      parameters:
+        - $ref: '#/components/parameters/BusinessEventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessVerificationRequest'
+      responses:
+        '200':
+          description: Access verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessVerificationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          description: A3 Access Gate service error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/access-events:
+    post:
+      operationId: receiveAccessEventFromA3
+      summary: Receive access event from A3 Access Gate
+      description: |
+        A3 can push access check results or denied access logs into A6.
+        A6 stores them as BusinessEvent items when business action is required.
+      tags: [Access Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessEvent'
+      responses:
+        '201':
+          description: Business event created from access event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessEventCreatedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/events/{businessEventId}/decision:
+    post:
+      operationId: createBusinessDecision
+      summary: Create business decision
+      description: |
+        A6 creates a decision after checking data from A4/A3.
+        Examples: verify access, create notification, assign security, ignore or resolve event.
+      tags: [Decisions]
+      parameters:
+        - $ref: '#/components/parameters/BusinessEventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDecisionRequest'
+      responses:
+        '201':
+          description: Decision created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessDecision'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/notifications:
+    post:
+      operationId: createNotificationViaA7
+      summary: Create notification request through A7
+      description: |
+        This endpoint represents A6 creating a notification request and forwarding it to A7.
+        A6 must call A7 Notification API: POST /api/notifications.
+        Payload follows A7 NotificationRequest format.
+      tags: [A7 Notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A7NotificationRequest'
+            examples:
+              securityAlert:
+                value:
+                  eventId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2b001
+                  source: CORE_BUSINESS
+                  type: SECURITY_ALERT
+                  priority: HIGH
+                  title: Unauthorized access detected
+                  message: Person detected near restricted gate and access was denied.
+                  channels: [email, telegram, sms]
+                  receivers:
+                    - userId: security01
+                      email: security@campus.edu
+                      phone: '+84987654321'
+                      telegramChatId: '987654321'
+                  metadata:
+                    businessEventId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2b001
+                    cameraId: CAM-01
+                    gateId: GATE-A1
+                    sourceDetectionService: A4
+                    sourceAccessService: A3
+                  createdAt: '2026-05-20T08:02:00Z'
+      responses:
+        '201':
+          description: Notification queued successfully by A7
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/A7NotificationResponse'
+              examples:
+                queued:
+                  value:
+                    notificationId: 0196fb3d-4ad7-7d1e-9f49-5d5148d2c001
+                    status: PENDING
+                    message: Notification queued successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          description: A7 Notification service error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      operationId: listA7NotificationRequests
+      summary: List A6 notification requests
+      description: List notification requests created by A6 and their latest known A7 status.
+      tags: [A7 Notifications]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Notification page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/A7NotificationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/notifications/{notificationId}:
+    get:
+      operationId: getA7NotificationRequestById
+      summary: Get notification detail
+      description: |
+        Returns A6 stored notification detail. A6 may also query A7 GET /api/notifications/{notificationId}
+        to refresh the latest delivery status.
+      tags: [A7 Notifications]
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notification detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/A7NotificationDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/core-business/notifications/status:
+    post:
+      operationId: receiveA7NotificationStatus
+      summary: Receive notification status callback from A7
+      description: |
+        Optional callback endpoint for A7 to notify A6 about delivery results.
+        It uses the same fields that A7 exposes in NotificationDetail: notificationId, status,
+        sentChannels, failedChannels, attempts, and updatedAt.
+      tags: [A7 Notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/A7NotificationStatusCallback'
+      responses:
+        '200':
+          description: Callback received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallbackAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    BusinessEventId:
+      name: businessEventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    Status:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/BusinessEventStatus'
+
+    Severity:
+      name: severity
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Severity'
+
+    CameraId:
+      name: cameraId
+      in: query
+      required: false
+      schema:
+        type: string
+
+    GateId:
+      name: gateId
+      in: query
+      required: false
+      schema:
+        type: string
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type:
+          - string
+          - 'null'
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: false
+      required: [status, service, time]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+          example: a6-core-business
+        time:
+          type: string
+          format: date-time
+
+    VisionDetectionEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, detectionId, cameraId, detectedAt, objects]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        detectionId:
+          type: string
+          format: uuid
+        cameraId:
+          type: string
+        detectedAt:
+          type: string
+          format: date-time
+        snapshotUrl:
+          type:
+            - string
+            - 'null'
+          format: uri
+        objects:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/DetectedObject'
+
+    DetectedObject:
+      type: object
+      additionalProperties: false
+      required: [label, confidence, riskLevel]
+      properties:
+        label:
+          type: string
+          example: person
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        riskLevel:
+          $ref: '#/components/schemas/Severity'
+        boundingBox:
+          $ref: '#/components/schemas/BoundingBox'
+
+    BoundingBox:
+      type: object
+      additionalProperties: false
+      required: [x, y, width, height]
+      properties:
+        x:
+          type: integer
+          minimum: 0
+        y:
+          type: integer
+          minimum: 0
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+
+    AccessVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [cardId, gateId, timestamp]
+      properties:
+        cardId:
+          type: string
+          example: CARD-1001
+        gateId:
+          type: string
+          example: GATE-A1
+        timestamp:
+          type: string
+          format: date-time
+
+    AccessVerificationResult:
+      type: object
+      additionalProperties: false
+      required: [businessEventId, cardId, gateId, allowed, message, verifiedAt]
+      properties:
+        businessEventId:
+          type: string
+          format: uuid
+        cardId:
+          type: string
+        gateId:
+          type: string
+        allowed:
+          type: boolean
+        message:
+          type: string
+        accessType:
+          type:
+            - string
+            - 'null'
+          enum: [student, staff, guest, null]
+        verifiedAt:
+          type: string
+          format: date-time
+
+    AccessEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, gateId, cardId, decision, timestamp]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        gateId:
+          type: string
+          example: GATE-A1
+        cardId:
+          type: string
+          example: CARD-1001
+        accessType:
+          type:
+            - string
+            - 'null'
+          enum: [student, staff, guest, null]
+        decision:
+          type: string
+          enum: [ALLOW, DENY]
+        message:
+          type:
+            - string
+            - 'null'
+        timestamp:
+          type: string
+          format: date-time
+
+    BusinessEventCreatedResponse:
+      type: object
+      additionalProperties: false
+      required: [businessEventId, status, createdAt]
+      properties:
+        businessEventId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/BusinessEventStatus'
+        createdAt:
+          type: string
+          format: date-time
+
+    BusinessEvent:
+      type: object
+      additionalProperties: false
+      required: [businessEventId, eventType, source, severity, status, createdAt, updatedAt]
+      properties:
+        businessEventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          enum:
+            - VISION_DETECTION
+            - ACCESS_DENIED
+            - UNAUTHORIZED_ACCESS
+            - SECURITY_INTRUSION
+            - NOTIFICATION_FAILURE
+        source:
+          type: string
+          enum:
+            - AI_VISION
+            - ACCESS_GATE
+            - CORE_BUSINESS
+            - NOTIFICATION
+        severity:
+          $ref: '#/components/schemas/Severity'
+        status:
+          $ref: '#/components/schemas/BusinessEventStatus'
+        detection:
+          $ref: '#/components/schemas/VisionDetectionEvent'
+        accessEvent:
+          $ref: '#/components/schemas/AccessEvent'
+        accessVerification:
+          $ref: '#/components/schemas/AccessVerificationResult'
+        latestDecision:
+          $ref: '#/components/schemas/BusinessDecision'
+        notificationId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    BusinessEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusinessEvent'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+        hasMore:
+          type: boolean
+
+    BusinessEventStatus:
+      type: string
+      enum:
+        - OPEN
+        - VERIFYING_ACCESS
+        - WAITING_DECISION
+        - WAITING_NOTIFICATION
+        - NOTIFICATION_SENT
+        - RESOLVED
+        - IGNORED
+        - FAILED
+
+    UpdateBusinessEventStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status, updatedBy]
+      properties:
+        status:
+          $ref: '#/components/schemas/BusinessEventStatus'
+        reason:
+          type:
+            - string
+            - 'null'
+        updatedBy:
+          type: string
+
+    CreateDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [action, decidedBy]
+      properties:
+        action:
+          $ref: '#/components/schemas/DecisionAction'
+        reason:
+          type:
+            - string
+            - 'null'
+        decidedBy:
+          type: string
+          example: rule-engine
+
+    BusinessDecision:
+      type: object
+      additionalProperties: false
+      required: [decisionId, businessEventId, action, decidedBy, decidedAt]
+      properties:
+        decisionId:
+          type: string
+          format: uuid
+        businessEventId:
+          type: string
+          format: uuid
+        action:
+          $ref: '#/components/schemas/DecisionAction'
+        reason:
+          type:
+            - string
+            - 'null'
+        decidedBy:
+          type: string
+        decidedAt:
+          type: string
+          format: date-time
+
+    DecisionAction:
+      type: string
+      enum:
+        - VERIFY_ACCESS
+        - CREATE_NOTIFICATION
+        - ASSIGN_SECURITY
+        - IGNORE_EVENT
+        - RESOLVE_EVENT
+
+    A7NotificationRequest:
+      type: object
+      additionalProperties: false
+      required: [eventId, source, type, priority, title, message, channels, receivers, createdAt]
+      properties:
+        eventId:
+          type: string
+          description: A6 BusinessEvent ID used for deduplication and trace.
+          example: 0196fb3d-4ad7-7d1e-9f49-5d5148d2b001
+        source:
+          type: string
+          enum: [CORE_BUSINESS]
+          example: CORE_BUSINESS
+        type:
+          type: string
+          description: Alert type recognized by A7.
+          example: SECURITY_ALERT
+        priority:
+          $ref: '#/components/schemas/A7NotificationPriority'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Unauthorized access detected
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          example: Person detected near restricted gate and access was denied.
+        channels:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/A7NotificationChannel'
+          example: [email, telegram, sms]
+        receivers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/A7NotificationReceiver'
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            cameraId: CAM-01
+            gateId: GATE-A1
+        createdAt:
+          type: string
+          format: date-time
+
+    A7NotificationResponse:
+      type: object
+      additionalProperties: false
+      required: [notificationId, status, message]
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+          example: 0196fb3d-4ad7-7d1e-9f49-5d5148d2c001
+        status:
+          $ref: '#/components/schemas/A7NotificationStatus'
+        message:
+          type: string
+          example: Notification queued successfully
+        sentChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/A7NotificationChannel'
+
+    A7NotificationDetail:
+      allOf:
+        - $ref: '#/components/schemas/A7NotificationRequest'
+        - type: object
+          additionalProperties: false
+          required: [notificationId, status, updatedAt]
+          properties:
+            notificationId:
+              type: string
+              format: uuid
+            status:
+              $ref: '#/components/schemas/A7NotificationStatus'
+            sentChannels:
+              type: array
+              items:
+                $ref: '#/components/schemas/A7NotificationChannel'
+            failedChannels:
+              type: array
+              items:
+                $ref: '#/components/schemas/A7NotificationChannel'
+            attempts:
+              type: integer
+              minimum: 0
+            updatedAt:
+              type: string
+              format: date-time
+
+    A7NotificationPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/A7NotificationDetail'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+        hasMore:
+          type: boolean
+
+    A7NotificationReceiver:
+      type: object
+      additionalProperties: false
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          example: security01
+        email:
+          type: string
+          format: email
+          example: security@campus.edu
+        phone:
+          type: string
+          example: '+84987654321'
+        telegramChatId:
+          type: string
+          example: '987654321'
+
+    A7NotificationPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    A7NotificationChannel:
+      type: string
+      enum: [email, telegram, sms, dashboard]
+
+    A7NotificationStatus:
+      type: string
+      enum: [PENDING, SUCCESS, FAILED]
+
+    A7NotificationStatusCallback:
+      type: object
+      additionalProperties: false
+      required: [notificationId, eventId, status, updatedAt]
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+        status:
+          $ref: '#/components/schemas/A7NotificationStatus'
+        sentChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/A7NotificationChannel'
+        failedChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/A7NotificationChannel'
+        attempts:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+
+    CallbackAcceptedResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted, receivedAt]
+      properties:
+        accepted:
+          type: boolean
+          example: true
+        receivedAt:
+          type: string
+          format: date-time
+
+    Severity:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://campus.local/errors/validation
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type:
+            - string
+            - 'null'
+        instance:
+          type:
+            - string
+            - 'null'
+          format: uri
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, code, message]
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+              message:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request payload
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    Conflict:
+      description: Conflict or duplicated idempotency key
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    UnprocessableEntity:
+      description: Payload is valid JSON but violates business rules
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

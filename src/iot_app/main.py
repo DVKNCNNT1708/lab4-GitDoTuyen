@@ -8,6 +8,20 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+HTTP_STATUS_PHRASES: Dict[int, str] = {
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    409: "Conflict",
+    422: "Unprocessable Entity",
+    429: "Too Many Requests",
+    500: "Internal Server Error",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
+}
+
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "iot-ingestion")
 SERVICE_VERSION = os.getenv("SERVICE_VERSION", "0.4.0")
@@ -108,26 +122,27 @@ def build_problem(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     if isinstance(exc.detail, dict):
-        problem = exc.detail
+        problem = dict(exc.detail)  # copy to avoid mutating
     else:
         problem = build_problem(
             status_code=exc.status_code,
-            title=status.HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"),
+            title=HTTP_STATUS_PHRASES.get(exc.status_code, "HTTP Error"),
             detail=str(exc.detail),
             instance=str(request.url.path),
         )
 
     problem.setdefault("status", exc.status_code)
-    problem.setdefault("title", status.HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"))
+    problem.setdefault("title", HTTP_STATUS_PHRASES.get(exc.status_code, "HTTP Error"))
     problem.setdefault("type", "about:blank")
     problem.setdefault("detail", "Request failed")
     problem.setdefault("instance", str(request.url.path))
 
+    headers = getattr(exc, "headers", None) or {}
     return JSONResponse(
         status_code=exc.status_code,
         content=problem,
         media_type="application/problem+json",
-        headers=getattr(exc, "headers", None),
+        headers=headers,
     )
 
 
