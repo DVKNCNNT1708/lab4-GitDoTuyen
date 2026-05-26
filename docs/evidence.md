@@ -3,8 +3,10 @@
 **Repo:** https://github.com/DVKNCNNT1708/lab4-GitDoTuyen  
 **CI Run:** https://github.com/DVKNCNNT1708/lab4-GitDoTuyen/actions ✅ **PASSED (53s)**  
 **Newman Artifact:** https://github.com/DVKNCNNT1708/lab4-GitDoTuyen/actions/runs/26445793215/artifacts/7214256139  
-**Image local:** `fit4110/iot-ingestion:lab04`  
-**Tag nộp:** `ghcr.io/dvkncnnt1708/iot-ingestion:v0.1.0-team-iot`
+**Image đã push (Docker Hub):**
+- `docker.io/ngocmi/iot-ingestion:v0.1.0-team-iot` ✅ pushed
+- `docker.io/ngocmi/iot-ingestion:lab04` ✅ pushed
+- Xem tại: https://hub.docker.com/r/ngocmi/iot-ingestion/tags
 
 ---
 
